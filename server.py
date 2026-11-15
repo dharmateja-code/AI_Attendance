@@ -89,12 +89,14 @@ class VideoStreamManager:
         """Yields MJPEG frames for live recognition with overlays and attendance marking."""
         cam = self.get_camera()
         if not cam.isOpened():
-            # Return placeholder error frame
-            err_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(err_frame, "Webcam Unavailable", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            _, jpeg = cv2.imencode('.jpg', err_frame)
-            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
-            return
+            while True:
+                err_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(err_frame, "Webcam Stream (Cloud Server)", (100, 210), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (56, 189, 248), 2)
+                cv2.putText(err_frame, "Connect webcam or run locally for live video", (80, 250), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (148, 163, 184), 1)
+                cv2.putText(err_frame, f"Cloud Time: {datetime.now().strftime('%H:%M:%S')}", (220, 290), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (16, 185, 129), 1)
+                _, jpeg = cv2.imencode('.jpg', err_frame)
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+                time.sleep(1)
 
         while True:
             # If capture session is active, yield to capture mode
@@ -470,8 +472,9 @@ def serve_frontend(path):
 
 
 if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
     print("==================================================================")
     print("  SMART ATTENDANCE MANAGEMENT SYSTEM - PYTHON REST API SERVER")
-    print("  Endpoints live on http://localhost:5000")
+    print(f"  Endpoints live on http://0.0.0.0:{port}")
     print("==================================================================")
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
