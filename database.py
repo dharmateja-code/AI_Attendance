@@ -39,6 +39,16 @@ if os.path.exists(CONFIG_PATH):
     except Exception as e:
         print(f"[WARNING] Could not read db_config.json: {e}")
 
+# Environment variables override (for Cloud Platforms like Render, Railway, AWS)
+DB_CONFIG['host'] = os.environ.get('MYSQL_HOST') or os.environ.get('DB_HOST') or DB_CONFIG['host']
+DB_CONFIG['user'] = os.environ.get('MYSQL_USER') or os.environ.get('DB_USER') or DB_CONFIG['user']
+DB_CONFIG['password'] = os.environ.get('MYSQL_PASSWORD') or os.environ.get('DB_PASSWORD') or DB_CONFIG['password']
+DB_CONFIG['database'] = os.environ.get('MYSQL_DATABASE') or os.environ.get('DB_NAME') or DB_CONFIG['database']
+try:
+    DB_CONFIG['port'] = int(os.environ.get('MYSQL_PORT') or os.environ.get('DB_PORT') or DB_CONFIG['port'])
+except (ValueError, TypeError):
+    DB_CONFIG['port'] = 3306
+
 
 def hash_password(password: str) -> str:
     """Return SHA-256 hash of plaintext password."""
@@ -55,6 +65,14 @@ class DatabaseManager:
 
     def _test_and_select_backend(self):
         """Attempts connection to MySQL. Falls back to SQLite if unreachable."""
+        # On cloud instances without an external MySQL host configured, use SQLite directly
+        is_cloud = bool(os.environ.get('RENDER') or os.environ.get('DYNO'))
+        if is_cloud and DB_CONFIG['host'] == 'localhost':
+            self.use_mysql = False
+            os.makedirs(os.path.dirname(SQLITE_DB_PATH), exist_ok=True)
+            print("[INFO] Cloud environment detected (Render). Using embedded database engine (smart_attendance.db).")
+            return
+
         if MYSQL_AVAILABLE:
             try:
                 # Test connection to MySQL server

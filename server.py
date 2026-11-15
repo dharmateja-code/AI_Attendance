@@ -6,12 +6,21 @@ Integrates OpenCV Face Recognition, Database operations, and Real-Time MJPEG Str
 import os
 import glob
 import time
+import base64
 from datetime import datetime
 import cv2
 import numpy as np
 from flask import Flask, request, jsonify, Response, send_file, send_from_directory
 from flask_cors import CORS
 from PIL import Image
+
+def decode_base64_image(base64_str):
+    """Decodes a base64 string to an OpenCV BGR image."""
+    if ',' in base64_str:
+        base64_str = base64_str.split(',')[1]
+    img_bytes = base64.b64decode(base64_str)
+    nparr = np.frombuffer(img_bytes, np.uint8)
+    return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
 # Import existing modules
 from database import db
@@ -258,6 +267,167 @@ def api_login():
             }
         })
     return jsonify({"success": False, "message": "Invalid credentials."}), 401
+
+
+@app.route('/api/recognize_frame', methods=['POST'])
+def api_recognize_frame():
+    """Processes a single image frame from the browser webcam, runs LBPH recognition & logs attendance."""
+    data = request.get_json() or {}
+    image_data = data.get('image', '')
+    if not image_data:
+        return jsonify({"success": False, "message": "No image data provided"}), 400
+
+    try:
+        frame = decode_base64_image(image_data)
+        if frame is None:
+            return jsonify({"success": False, "message": "Failed to decode image"}), 400
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = stream_mgr.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=(80, 80))
+
+        results = []
+        current_epoch = time.time()
+
+        if stream_mgr.clf is None:
+            stream_mgr.load_model()
+
+        for (x, y, w, h) in faces:
+            face_roi_gray = gray[y:y + h, x:x + w]
+            face_resized = cv2.resize(face_roi_gray, (200, 200))
+
+            is_live, var_val = stream_mgr.check_anti_spoofing(face_roi_gray)
+            if not is_live:
+                results.append({
+                    "box": [int(x), int(y), int(w), int(h)],
+                    "status": "Spoof",
+                    "label": "Spoof Detected",
+                    "confidence": 0
+                })
+                continue
+
+            if stream_mgr.clf:
+                student_id, distance = stream_mgr.clf.predict(face_resized)
+                confidence_pct = max(0, min(100, int(100 - (distance * 0.7))))
+
+                if distance < 68 and confidence_pct >= 50:
+                    student = db.get_student_by_id(student_id)
+                    if student:
+                        name = student['name']
+                        roll = student['roll_no']
+
+                        # Mark attendance with cooldown
+                        last_time = stream_mgr.last_recognized_time.get(student_id, 0)
+                        status_str = "Recognized"
+                        if (current_epoch - last_time) > 4.0:
+                            stream_mgr.last_recognized_time[student_id] = current_epoch
+                            res_status, msg, _ = db.record_attendance(student_id, confidence_pct)
+                            now_str = datetime.now().strftime("%H:%M:%S")
+
+                            status_str = "Marked" if res_status == "SUCCESS" else "Already Marked"
+                            item = {
+                                "student_id": student_id,
+                                "name": name,
+                                "roll_no": roll,
+                                "time": now_str,
+                                "confidence": confidence_pct,
+                                "status": status_str
+                            }
+                            stream_mgr.recent_marked_cache.insert(0, item)
+                            stream_mgr.recent_marked_cache = stream_mgr.recent_marked_cache[:15]
+
+                        results.append({
+                            "box": [int(x), int(y), int(w), int(h)],
+                            "student_id": student_id,
+                            "name": name,
+                            "roll_no": roll,
+                            "confidence": confidence_pct,
+                            "status": status_str,
+                            "label": f"{name} ({confidence_pct}%)"
+                        })
+                    else:
+                        results.append({
+                            "box": [int(x), int(y), int(w), int(h)],
+                            "status": "Unknown",
+                            "label": "Unknown ID",
+                            "confidence": 0
+                        })
+                else:
+                    results.append({
+                        "box": [int(x), int(y), int(w), int(h)],
+                        "status": "Unknown",
+                        "label": "Unknown Person",
+                        "confidence": 0
+                    })
+            else:
+                results.append({
+                    "box": [int(x), int(y), int(w), int(h)],
+                    "status": "NoModel",
+                    "label": "Model Not Trained",
+                    "confidence": 0
+                })
+
+        return jsonify({"success": True, "faces": results, "total_faces": len(faces)})
+
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/capture_frame', methods=['POST'])
+def api_capture_frame():
+    """Saves a facial sample image received from browser webcam for student dataset."""
+    data = request.get_json() or {}
+    image_data = data.get('image', '')
+    try:
+        student_id = int(data.get('student_id'))
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "Invalid student_id"}), 400
+
+    if not image_data:
+        return jsonify({"success": False, "message": "No image data"}), 400
+
+    try:
+        frame = decode_base64_image(image_data)
+        if frame is None:
+            return jsonify({"success": False, "message": "Could not decode frame"}), 400
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = stream_mgr.face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5, minSize=(80, 80))
+
+        if len(faces) == 0:
+            return jsonify({"success": False, "message": "No face detected in camera", "status": "NO_FACE"}), 200
+        if len(faces) > 1:
+            return jsonify({"success": False, "message": "Multiple faces detected", "status": "MULTIPLE_FACES"}), 200
+
+        existing_samples = len(glob.glob(os.path.join(DATASET_DIR, f"user.{student_id}.*.jpg")))
+        sample_no = existing_samples + 1
+        max_samples = 60
+
+        (x, y, w, h) = faces[0]
+        face_crop = gray[y:y + h, x:x + w]
+        face_resized = cv2.resize(face_crop, (200, 200))
+        sample_path = os.path.join(DATASET_DIR, f"user.{student_id}.{sample_no}.jpg")
+        cv2.imwrite(sample_path, face_resized)
+
+        trained = False
+        train_msg = ""
+        if sample_no >= max_samples:
+            db.update_photo_sample_status(student_id, "Sample Ready")
+            success, train_msg = face_manager.train_classifier()
+            stream_mgr.load_model()
+            trained = True
+
+        return jsonify({
+            "success": True,
+            "count": sample_no,
+            "max": max_samples,
+            "completed": sample_no >= max_samples,
+            "trained": trained,
+            "train_msg": train_msg,
+            "box": [int(x), int(y), int(w), int(h)]
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
 
 @app.route('/api/dashboard/stats', methods=['GET'])
