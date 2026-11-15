@@ -5,9 +5,20 @@ face_capture.py - Captures facial dataset samples using webcam and trains LBPH m
 import os
 import cv2
 import numpy as np
-import tkinter as tk
-from tkinter import ttk, messagebox
-from PIL import Image, ImageTk
+from PIL import Image
+
+try:
+    import tkinter as tk
+    from tkinter import ttk, messagebox
+    from PIL import ImageTk
+    TK_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    tk = None
+    ttk = None
+    messagebox = None
+    ImageTk = None
+    TK_AVAILABLE = False
+
 from database import db
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +46,9 @@ class FaceCaptureManager:
 
     def open_capture_window(self, parent, student_id, student_name, on_complete_callback=None):
         """Launches real-time camera capture dialog inside Tkinter."""
+        if not TK_AVAILABLE:
+            print("[WARNING] Tkinter is not available in this environment.")
+            return
         cap_win = tk.Toplevel(parent)
         cap_win.title(f"Face Sample Collector - ID: {student_id} ({student_name})")
         cap_win.geometry("780x680")

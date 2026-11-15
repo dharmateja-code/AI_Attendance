@@ -6,11 +6,21 @@ Integrates LBPH model, live webcam stream, duplicate prevention, and anti-spoofi
 import os
 import cv2
 import numpy as np
-import tkinter as tk
-from tkinter import ttk, messagebox
-from PIL import Image, ImageTk
+from PIL import Image
 from datetime import datetime
 from database import db
+
+try:
+    import tkinter as tk
+    from tkinter import ttk, messagebox
+    from PIL import ImageTk
+    TK_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    tk = None
+    ttk = None
+    messagebox = None
+    ImageTk = None
+    TK_AVAILABLE = False
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CLASSIFIER_PATH = os.path.join(BASE_DIR, "classifier", "classifier.xml")
