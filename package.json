@@ -1,0 +1,12 @@
+{
+  "name": "smart-attendance-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Smart Attendance Management System Using Face Recognition (React.js + Python)",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix frontend run dev",
+    "preview": "npm --prefix frontend run preview"
+  }
+}

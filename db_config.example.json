@@ -1,0 +1,7 @@
+{
+  "host": "localhost",
+  "user": "root",
+  "password": "YOUR_MYSQL_PASSWORD_HERE",
+  "database": "smart_attendance_db",
+  "port": 3306
+}

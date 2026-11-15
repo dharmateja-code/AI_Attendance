@@ -1,0 +1,36 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Python Cache & Compiled Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment Variables & Sensitive Credentials
+.env
+db_config.json
+
+# Node.js Dependencies
+node_modules/
+frontend/node_modules/
+
+# Local Database Files
+*.db
+data/*.db
+!data/.gitkeep
+
+# Sensitive Student Facial Dataset Images & Reports
+dataset/*.jpg
+!dataset/.gitkeep
+reports/*.xlsx
+reports/*.csv
+!reports/.gitkeep
+
+# Operating System & IDE Artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
